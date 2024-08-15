@@ -14,14 +14,15 @@
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
 
 // Package rotator implements a simple logfile rotator. Logs are read from an
 // io.Reader and are written to a file until they reach a specified size. The
@@ -38,11 +39,53 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // nl is a byte slice containing a newline byte.  It is used to avoid creating
 // additional allocations when writing newlines to the log file.
 var nl = []byte{'\n'}
+
+// Compressor represents the supported compression algorithms.
+type Compressor uint8
+
+const (
+	// Gzip is the gzip compression algorithm, implemented in the stdlib.
+	Gzip Compressor = 0
+
+	// Zstd is the zstd compression algorithm.
+	Zstd Compressor = 1
+)
+
+// Validate checks that the Compressor is valid, and returns the appropriate
+// file suffix for the compressed file.
+func (c Compressor) Validate() (string, error) {
+	switch c {
+	case Gzip:
+		return ".gz", nil
+	case Zstd:
+		return ".zst", nil
+
+	default:
+		return "", fmt.Errorf("unknown compression algorithm: %d", c)
+	}
+}
+
+// Init creates a new writer to use for compression.
+func (c Compressor) Init(w io.Writer) (io.WriteCloser, error) {
+	switch c {
+	case Gzip:
+		dst := gzip.NewWriter(w)
+		return dst, nil
+
+	case Zstd:
+		return zstd.NewWriter(w)
+
+	default:
+		return nil, fmt.Errorf("unknown compression algorithm: %d", c)
+	}
+}
 
 // A Rotator writes input to a file, splitting it up into gzipped chunks once
 // the filesize reaches a certain threshold.
@@ -54,12 +97,15 @@ type Rotator struct {
 	out       *os.File
 	tee       bool
 	wg        sync.WaitGroup
+	comp      Compressor
 }
 
 // New returns a new Rotator.  The rotator can be used either by reading input
 // from an io.Reader by calling Run, or writing directly to the Rotator with
-// Write.
-func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator, error) {
+// Write. The default compression algorithm is Gzip.
+func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator,
+	error) {
+
 	f, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
@@ -77,7 +123,28 @@ func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator, 
 		filename:  filename,
 		out:       f,
 		tee:       tee,
+		comp:      Gzip,
 	}, nil
+}
+
+// NewWithCompressor returns a new Rotator that will use a specific compression
+// algorithm.
+func NewWithCompressor(filename string, thresholdKB int64, tee bool,
+	maxRolls int, comp Compressor) (*Rotator, error) {
+
+	_, err := comp.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	rotator, err := New(filename, thresholdKB, tee, maxRolls)
+	if err != nil {
+		return nil, err
+	}
+
+	rotator.comp = comp
+
+	return rotator, nil
 }
 
 // Run begins reading lines from the reader and rotating logs as necessary.  Run
@@ -202,7 +269,7 @@ func (r *Rotator) rotate() error {
 
 	r.wg.Add(1)
 	go func() {
-		err := compress(rotname)
+		err := compress(rotname, r.comp)
 		if err == nil {
 			os.Remove(rotname)
 		}
@@ -212,19 +279,30 @@ func (r *Rotator) rotate() error {
 	return nil
 }
 
-func compress(name string) (err error) {
+func compress(name string, comp Compressor) (err error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	arc, err := os.OpenFile(name+".gz", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	suffix, err := comp.Validate()
 	if err != nil {
 		return err
 	}
 
-	z := gzip.NewWriter(arc)
+	arc, err := os.OpenFile(
+		name+suffix, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644,
+	)
+	if err != nil {
+		return err
+	}
+
+	z, err := comp.Init(arc)
+	if err != nil {
+		return err
+	}
+
 	if _, err = io.Copy(z, f); err != nil {
 		return err
 	}
