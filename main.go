@@ -14,14 +14,15 @@
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
 
 // Command logrotate writes and rotates logs read from stdin.
 package main
@@ -32,21 +33,26 @@ import (
 	"log"
 	"os"
 
-	"github.com/jrick/logrotate/rotator"
+	"github.com/jharveyb/logrotate/rotator"
 )
 
 var (
 	flagT = flag.Bool("t", false, "Behave like tee(1)")
 	flagC = flag.Int("c", 5000, "Max (uncompressed) logfile size in kB")
-	flagR = flag.Int("r", 0, "Max number of roll files to keep, 0 is unlimited")
+	flagR = flag.Int(
+		"r", 0, "Max number of roll files to keep, 0 is unlimited",
+	)
 )
 
 func init() {
 	log.SetFlags(0)
 	log.SetPrefix(os.Args[0] + ": ")
 
+	helpMsg := "Usage: <process that outputs to stdout> | logrotate [-t] " +
+		"[-c <N>] <filename>"
+
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: <process that outputs to stdout> | logrotate [-t] [-c <N>] <filename>")
+		fmt.Fprintln(os.Stderr, helpMsg)
 		flag.PrintDefaults()
 	}
 	flag.Parse()
