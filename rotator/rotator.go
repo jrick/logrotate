@@ -32,6 +32,7 @@ package rotator
 import (
 	"bufio"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -244,7 +245,9 @@ func (r *Rotator) compress(name string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		err = errors.Join(err, f.Close())
+	}()
 
 	zname := fmt.Sprintf("%s.%s", name, r.zSuffix)
 	arc, err := os.OpenFile(zname, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
@@ -252,16 +255,12 @@ func (r *Rotator) compress(name string) (err error) {
 		return err
 	}
 	defer func() {
-		if e := arc.Close(); err == nil {
-			err = e
-		}
+		err = errors.Join(err, arc.Close())
 	}()
 
 	r.zw.Reset(arc)
 	defer func() {
-		if e := r.zw.Close(); err == nil {
-			err = e
-		}
+		err = errors.Join(err, r.zw.Close())
 	}()
 
 	_, err = io.Copy(r.zw, f)
