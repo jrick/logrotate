@@ -96,7 +96,7 @@ type Compressor interface {
 // SetCompressor changes the algorithm or compression parameters used to
 // compress rotated log files.  By default, compression is performed using
 // gzip with default parameters and a "gz" suffix.  Setting a nil compressor
-// function disables compression.
+// disables compression.
 //
 // SetCompressor is not concurrent safe and must be called before the Rotator
 // is run.
