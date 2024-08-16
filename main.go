@@ -1,5 +1,5 @@
 // Copyright (c) 2017, moshee
-// Copyright (c) 2017, Josh Rickmar <jrick@devio.us>
+// Copyright (c) 2017 Josh Rickmar <jrick@zettaport.com>
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without

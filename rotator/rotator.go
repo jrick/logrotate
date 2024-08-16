@@ -1,5 +1,5 @@
 // Copyright (c) 2017, moshee
-// Copyright (c) 2017, Josh Rickmar <jrick@devio.us>
+// Copyright (c) 2017, 2024 Josh Rickmar <jrick@zettaport.com>
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -25,7 +25,8 @@
 
 // Package rotator implements a simple logfile rotator. Logs are read from an
 // io.Reader and are written to a file until they reach a specified size. The
-// log is then gzipped to another file and truncated.
+// log is then truncated and (by default) gzipped to another file or
+// compressed with a user-configurable compression scheme.
 package rotator
 
 import (
@@ -53,6 +54,8 @@ type Rotator struct {
 	filename  string
 	out       *os.File
 	tee       bool
+	zw        Compressor
+	zSuffix   string
 	wg        sync.WaitGroup
 }
 
@@ -77,7 +80,29 @@ func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator, 
 		filename:  filename,
 		out:       f,
 		tee:       tee,
+		zw:        gzip.NewWriter(nil),
+		zSuffix:   "gz",
 	}, nil
+}
+
+// Compressor writes a compressed stream to an underlying writer.  The
+// underlying writer and the compression state is reset for each rotated file.
+type Compressor interface {
+	io.WriteCloser
+	Reset(io.Writer)
+	Flush() error
+}
+
+// SetCompressor changes the algorithm or compression parameters used to
+// compress rotated log files.  By default, compression is performed using
+// gzip with default parameters and a "gz" suffix.  Setting a nil compressor
+// function disables compression.
+//
+// SetCompressor is not concurrent safe and must be called before the Rotator
+// is run.
+func (r *Rotator) SetCompressor(zw Compressor, suffix string) {
+	r.zw = zw
+	r.zSuffix = strings.TrimPrefix(suffix, ".")
 }
 
 // Run begins reading lines from the reader and rotating logs as necessary.  Run
@@ -166,7 +191,7 @@ func (r *Rotator) rotate() error {
 			continue
 		}
 		numIdx := len(parts) - 1
-		if parts[numIdx] == "gz" {
+		if parts[numIdx] == r.zSuffix {
 			numIdx--
 		}
 		num, err := strconv.Atoi(parts[numIdx])
@@ -188,8 +213,8 @@ func (r *Rotator) rotate() error {
 		return err
 	}
 	if r.maxRolls > 0 {
-		for n := maxNum + 1 - r.maxRolls; ; n-- {
-			err := os.Remove(fmt.Sprintf("%s.%d.gz", r.filename, n))
+		for n := maxNum + 1 - r.maxRolls; n >= 1; n-- {
+			err := os.Remove(fmt.Sprintf("%s.%d.%s", r.filename, n, r.zSuffix))
 			if err != nil {
 				break
 			}
@@ -200,36 +225,45 @@ func (r *Rotator) rotate() error {
 		return err
 	}
 
-	r.wg.Add(1)
-	go func() {
-		err := compress(rotname)
-		if err == nil {
-			os.Remove(rotname)
-		}
-		r.wg.Done()
-	}()
+	if r.zw != nil {
+		r.wg.Add(1)
+		go func() {
+			err := r.compress(rotname)
+			if err == nil {
+				os.Remove(rotname)
+			}
+			r.wg.Done()
+		}()
+	}
 
 	return nil
 }
 
-func compress(name string) (err error) {
+func (r *Rotator) compress(name string) (err error) {
 	f, err := os.Open(name)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	arc, err := os.OpenFile(name+".gz", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	zname := fmt.Sprintf("%s.%s", name, r.zSuffix)
+	arc, err := os.OpenFile(zname, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if e := arc.Close(); err == nil {
+			err = e
+		}
+	}()
 
-	z := gzip.NewWriter(arc)
-	if _, err = io.Copy(z, f); err != nil {
-		return err
-	}
-	if err = z.Close(); err != nil {
-		return err
-	}
-	return arc.Close()
+	r.zw.Reset(arc)
+	defer func() {
+		if e := r.zw.Close(); err == nil {
+			err = e
+		}
+	}()
+
+	_, err = io.Copy(r.zw, f)
+	return err
 }
