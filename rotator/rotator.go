@@ -56,6 +56,7 @@ type Rotator struct {
 	tee       bool
 	zw        Compressor
 	zSuffix   string
+	zMu       sync.Mutex
 	wg        sync.WaitGroup
 }
 
@@ -228,6 +229,9 @@ func (r *Rotator) rotate() error {
 	if r.zw != nil {
 		r.wg.Add(1)
 		go func() {
+			r.zMu.Lock()
+			defer r.zMu.Unlock()
+
 			err := r.compress(rotname)
 			if err == nil {
 				os.Remove(rotname)
