@@ -215,7 +215,13 @@ func (r *Rotator) rotate() error {
 	}
 	if r.maxRolls > 0 {
 		for n := maxNum + 1 - r.maxRolls; n >= 1; n-- {
-			err := os.Remove(fmt.Sprintf("%s.%d.%s", r.filename, n, r.zSuffix))
+			var name string
+			if r.zw == nil || r.zSuffix == "" {
+				name = fmt.Sprintf("%s.%d", r.filename, n)
+			} else {
+				name = fmt.Sprintf("%s.%d.%s", r.filename, n, r.zSuffix)
+			}
+			err := os.Remove(name)
 			if err != nil {
 				break
 			}
