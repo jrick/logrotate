@@ -56,6 +56,7 @@ type Rotator struct {
 	tee       bool
 	zw        Compressor
 	zSuffix   string
+	fileMode  os.FileMode
 	zMu       sync.Mutex
 	wg        sync.WaitGroup
 }
@@ -64,7 +65,14 @@ type Rotator struct {
 // from an io.Reader by calling Run, or writing directly to the Rotator with
 // Write.
 func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator, error) {
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	return NewWithMode(filename, thresholdKB, tee, maxRolls, 0644)
+}
+
+// NewWithMode is like New, but creates the log file and the rotated and
+// compressed files with the given permissions.  As with any file creation, the
+// mode is subject to the process umask.
+func NewWithMode(filename string, thresholdKB int64, tee bool, maxRolls int, mode os.FileMode) (*Rotator, error) {
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_RDWR, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +91,7 @@ func New(filename string, thresholdKB int64, tee bool, maxRolls int) (*Rotator, 
 		tee:       tee,
 		zw:        gzip.NewWriter(nil),
 		zSuffix:   "gz",
+		fileMode:  mode,
 	}, nil
 }
 
@@ -227,7 +236,7 @@ func (r *Rotator) rotate() error {
 			}
 		}
 	}
-	r.out, err = os.OpenFile(r.filename, os.O_CREATE|os.O_RDWR, 0644)
+	r.out, err = os.OpenFile(r.filename, os.O_CREATE|os.O_RDWR, r.fileMode)
 	if err != nil {
 		return err
 	}
@@ -257,7 +266,7 @@ func (r *Rotator) compress(name string) (err error) {
 	defer f.Close()
 
 	zname := fmt.Sprintf("%s.%s", name, r.zSuffix)
-	arc, err := os.OpenFile(zname, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	arc, err := os.OpenFile(zname, os.O_CREATE|os.O_EXCL|os.O_WRONLY, r.fileMode)
 	if err != nil {
 		return err
 	}
